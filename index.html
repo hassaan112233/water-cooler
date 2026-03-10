@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="theme-color" content="#07070A"/>
+<title>☕ Water Cooler — Daily News Digest</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>☕</text></svg>"/>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,300;6..72,400;6..72,600;6..72,700&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{background:#07070A;color:#E2DFD8;font-family:'Newsreader','Georgia',serif;min-height:100vh;overflow-x:hidden}
+@keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+@keyframes pulse{0%,100%{opacity:.3}50%{opacity:.85}}
+@keyframes slideIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+@keyframes blink{0%,100%{opacity:.6}50%{opacity:1}}
+@keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
+.card{animation:fadeUp .4s ease both}.hint{animation:pulse 2.5s ease infinite}
+.detail-in{animation:slideIn .3s ease both}.bk{animation:blink 1.5s ease infinite}
+.shim{background:linear-gradient(90deg,#141418 25%,#1e1e24 50%,#141418 75%);background-size:200% 100%;animation:shimmer 1.5s infinite;border-radius:8px}
+.dm{font-family:'DM Sans',sans-serif}.jb{font-family:'JetBrains Mono',monospace}
+button{font-family:'DM Sans',sans-serif}
+::-webkit-scrollbar{display:none}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<script type="text/babel">
+const {useState,useEffect,useRef,useCallback}=React;
+
+// ═══ CONFIG ═══
+const SUBS=[
+  {name:"worldnews",cat:"World",color:"#F59E0B",emoji:"🌍",day:5,hour:2,primary:true},
+  {name:"geopolitics",cat:"World",color:"#F59E0B",emoji:"🌍",day:2,hour:0},
+  {name:"anime_titties",cat:"World",color:"#F59E0B",emoji:"🌍",day:2,hour:0},
+  {name:"nottheonion",cat:"World",color:"#F59E0B",emoji:"🌍",day:2,hour:0},
+  {name:"technology",cat:"Tech",color:"#3B82F6",emoji:"⚡",day:4,hour:2,primary:true},
+  {name:"artificial",cat:"Tech",color:"#3B82F6",emoji:"⚡",day:2,hour:0},
+  {name:"singularity",cat:"Tech",color:"#3B82F6",emoji:"⚡",day:2,hour:0},
+  {name:"business",cat:"Biz",color:"#10B981",emoji:"📈",day:3,hour:1,primary:true},
+  {name:"economics",cat:"Biz",color:"#10B981",emoji:"📈",day:2,hour:0},
+  {name:"wallstreetbets",cat:"Biz",color:"#10B981",emoji:"📈",day:2,hour:0},
+  {name:"science",cat:"Science",color:"#8B5CF6",emoji:"🔬",day:3,hour:1,primary:true},
+  {name:"Futurology",cat:"Science",color:"#8B5CF6",emoji:"🔬",day:2,hour:0},
+  {name:"environment",cat:"Science",color:"#8B5CF6",emoji:"🔬",day:2,hour:0},
+  {name:"OutOfTheLoop",cat:"Learn",color:"#EC4899",emoji:"💡",day:2,hour:0},
+  {name:"todayilearned",cat:"Learn",color:"#EC4899",emoji:"💡",day:2,hour:0},
+  {name:"dataisbeautiful",cat:"Learn",color:"#EC4899",emoji:"💡",day:2,hour:0},
+  {name:"explainlikeimfive",cat:"Learn",color:"#EC4899",emoji:"💡",day:2,hour:0},
+];
+const LABELS={
+  funny:{emoji:"😂",label:"Funny",color:"#FBBF24"},
+  insight:{emoji:"🔍",label:"Insight",color:"#60A5FA"},
+  counter:{emoji:"⚖️",label:"Counter",color:"#F87171"},
+  expert:{emoji:"🎓",label:"Expert",color:"#34D399"},
+  hot:{emoji:"🔥",label:"Hot Take",color:"#FB923C"},
+};
+const fmt=n=>n>=1000?(n/1000).toFixed(1)+"k":String(n);
+const ago=u=>{const d=Math.floor(Date.now()/1000-u);return d<3600?Math.floor(d/60)+"m":d<86400?Math.floor(d/3600)+"h":Math.floor(d/86400)+"d";};
+const readTime=c=>c>4000?"~5 min":c>2000?"~3 min":"~2 min";
+
+function classify(text,score){
+  const l=text.toLowerCase(),w=text.split(/\s+/).length;
+  if(w<20&&score>500)return"funny";
+  if(/source:|study|research|peer.reviewed|published in|professor|phd/.test(l))return"expert";
+  if(/however|on the other hand|disagree|counterpoint|devil.s advocate/.test(l))return"counter";
+  if(/important|key point|this means|implication|worth noting|the real story/.test(l))return"insight";
+  if(score>800&&w<15)return"funny";
+  return"hot";
+}
+
+// ═══ DEDUPLICATION ═══
+function dedup(posts){
+  const norm=t=>t.toLowerCase().replace(/[^a-z0-9 ]/g,"").split(/\s+/).filter(w=>w.length>3);
+  const groups=[];
+  for(const p of posts){
+    const words=new Set(norm(p.title));let merged=false;
+    for(const g of groups){
+      const gw=new Set(norm(g.title));
+      const overlap=[...words].filter(w=>gw.has(w)).length;
+      if(overlap/Math.min(words.size,gw.size)>0.5){if(p.comms>g.comms)Object.assign(g,p);merged=true;break;}
+    }
+    if(!merged)groups.push({...p});
+  }
+  return groups;
+}
+
+// ═══ FETCH REDDIT DATA ═══
+async function fetchReddit(){
+  const all=[];
+  for(const s of SUBS){
+    // Fetch top of day
+    try{
+      const r=await fetch(`https://www.reddit.com/r/${s.name}/top.json?t=day&limit=${s.day+3}`);
+      if(!r.ok)continue;const j=await r.json();
+      for(const{data:d}of j.data.children){
+        if(d.stickied||d.ups<50)continue;
+        all.push({id:d.id,title:d.title,url:d.url,permalink:`https://reddit.com${d.permalink}`,
+          sub:s.name,cat:s.cat,color:s.color,emoji:s.emoji,ups:d.ups,comms:d.num_comments,
+          ts:d.created_utc,selftext:d.selftext,breaking:false,
+          _r:d.ups*0.6+d.num_comments*0.3+Math.max(0,1-(Date.now()/1000-d.created_utc)/86400)*500*0.1});
+      }
+    }catch(e){console.warn(`Skip r/${s.name} day:`,e);}
+    // Fetch top of hour (breaking)
+    if(s.hour>0){
+      try{
+        const r=await fetch(`https://www.reddit.com/r/${s.name}/top.json?t=hour&limit=${s.hour+2}`);
+        if(!r.ok)continue;const j=await r.json();
+        for(const{data:d}of j.data.children){
+          if(d.stickied||d.ups<30)continue;
+          if(all.find(p=>p.id===d.id))continue;
+          all.push({id:d.id,title:d.title,url:d.url,permalink:`https://reddit.com${d.permalink}`,
+            sub:s.name,cat:s.cat,color:s.color,emoji:s.emoji,ups:d.ups,comms:d.num_comments,
+            ts:d.created_utc,selftext:d.selftext,breaking:true,
+            _r:d.ups*0.6+d.num_comments*0.3+500});
+        }
+      }catch(e){console.warn(`Skip r/${s.name} hour:`,e);}
+    }
+  }
+  const deduped=dedup(all);
+  deduped.sort((a,b)=>b._r-a._r);
+  return deduped;
+}
+
+// ═══ FETCH COMMENTS ═══
+async function fetchComments(post){
+  try{
+    const r=await fetch(`https://www.reddit.com/r/${post.sub}/comments/${post.id}.json?sort=top&limit=15`);
+    const j=await r.json();
+    return j[1]?.data?.children
+      ?.filter(c=>c.kind==="t1"&&c.data.body&&c.data.ups>5)
+      ?.slice(0,8)
+      ?.map(c=>({body:c.data.body,ups:c.data.ups,type:classify(c.data.body,c.data.ups)}))||[];
+  }catch{return[];}
+}
+
+// ═══ OPENAI SUMMARY ═══
+async function getAI(title,selftext,comments,apiKey){
+  const comTxt=comments.slice(0,5).map(c=>`[▲${c.ups}${c.type==="funny"?" FUNNY":""}] ${c.body?.slice(0,180)}`).join("\n");
+  try{
+    const r=await fetch("https://api.openai.com/v1/chat/completions",{
+      method:"POST",headers:{"Content-Type":"application/json","Authorization":`Bearer ${apiKey}`},
+      body:JSON.stringify({model:"gpt-4o-mini",temperature:0.7,max_tokens:400,
+        messages:[
+          {role:"system",content:"You are a crisp, witty news digest assistant. Write like a smart friend over coffee. ALWAYS include funny high-upvote comments."},
+          {role:"user",content:`Reddit post + comments. Give me:
+1. "summary": 2 tight sentences. What happened & why it matters.
+2. "commentDigest": exactly 3 items [{type,text}]. type=funny|insight|counter|expert|hot. Include funny+high-upvote ones! Each text 1-2 sentences max.
+3. "talkingPoint": 1 casual sentence for office water cooler. Sound natural.
+
+Title: ${title}
+Body: ${selftext?.slice(0,300)||"(link post)"}
+Comments:\n${comTxt}
+
+RESPOND ONLY VALID JSON. No markdown, no backticks.`}
+        ]})
+    });
+    const d=await r.json();
+    const t=d.choices?.[0]?.message?.content||"";
+    return JSON.parse(t.replace(/```json|```/g,"").trim());
+  }catch{return null;}
+}
+
+// ═══ SWIPE CARD ═══
+function SwipeCard({children,onSwipe}){
+  const sx=useRef(0),cx=useRef(0),drag=useRef(false);
+  const[off,setOff]=useState(0);const[gone,setGone]=useState(false);const[sw,setSw]=useState(false);
+  const start=x=>{drag.current=true;sx.current=x;cx.current=x;setSw(true);};
+  const move=x=>{if(!drag.current)return;cx.current=x;const d=cx.current-sx.current;if(d<0)setOff(d);};
+  const end=()=>{if(!drag.current)return;drag.current=false;setSw(false);if(off<-100){setGone(true);setTimeout(onSwipe,280);}else setOff(0);};
+  return(
+    <div onTouchStart={e=>start(e.touches[0].clientX)} onTouchMove={e=>move(e.touches[0].clientX)} onTouchEnd={end}
+      onMouseDown={e=>start(e.clientX)} onMouseMove={e=>{if(drag.current)move(e.clientX);}} onMouseUp={end} onMouseLeave={()=>{if(drag.current)end();}}
+      style={{transform:gone?"translateX(-120%) scale(0.9)":`translateX(${off}px)`,opacity:gone?0:off<-60?0.5:1,transition:sw?"none":"all .32s cubic-bezier(.4,0,.2,1)",cursor:"grab",position:"relative",userSelect:"none"}}>
+      {off<-30&&<div style={{position:"absolute",right:14,top:"50%",transform:"translateY(-50%)",fontSize:11,fontWeight:700,color:"#10B981",opacity:Math.min(1,Math.abs(off)/80),zIndex:2}} className="dm">✓ READ</div>}
+      {children}
+    </div>
+  );
+}
+
+// ═══ API KEY MODAL ═══
+function ApiKeyModal({onSave,onSkip}){
+  const[key,setKey]=useState("");
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:200,background:"rgba(0,0,0,.85)",backdropFilter:"blur(12px)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      <div style={{background:"#111115",borderRadius:16,padding:28,maxWidth:400,width:"100%",border:"1px solid #222"}}>
+        <div style={{fontSize:28,marginBottom:8}}>🔑</div>
+        <h2 className="dm" style={{fontSize:18,fontWeight:700,color:"#FAF9F6",margin:"0 0 6px"}}>OpenAI API Key</h2>
+        <p className="dm" style={{fontSize:13,color:"#777",margin:"0 0 16px",lineHeight:1.5}}>Paste your key for GPT-4o-mini summaries & talking points (~$0.01/day). Key stays in your browser only.</p>
+        <input type="password" value={key} onChange={e=>setKey(e.target.value)} placeholder="sk-..."
+          style={{width:"100%",padding:"10px 14px",borderRadius:8,border:"1px solid #2A2A30",background:"#0A0A0E",color:"#EEE",fontFamily:"'JetBrains Mono',monospace",fontSize:13,outline:"none",marginBottom:12}}/>
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={()=>onSave(key)} disabled={!key.startsWith("sk-")} style={{flex:1,fontSize:13,fontWeight:700,padding:"10px 0",borderRadius:8,border:"none",background:key.startsWith("sk-")?"#F59E0B":"#333",color:key.startsWith("sk-")?"#000":"#666",cursor:key.startsWith("sk-")?"pointer":"default"}}>Save & Enable AI</button>
+          <button onClick={onSkip} style={{fontSize:13,fontWeight:600,padding:"10px 18px",borderRadius:8,border:"1px solid #2A2A30",background:"transparent",color:"#777",cursor:"pointer"}}>Skip</button>
+        </div>
+        <p className="dm" style={{fontSize:10,color:"#444",margin:"12px 0 0",lineHeight:1.5}}>Without AI: you'll still see Reddit's top comments classified by type. AI adds polished summaries and talking points.</p>
+      </div>
+    </div>
+  );
+}
+
+// ═══ MAIN APP ═══
+function App(){
+  const[posts,setPosts]=useState([]);
+  const[loading,setLoading]=useState(true);
+  const[err,setErr]=useState(null);
+  const[dismissed,setDismissed]=useState([]);
+  const[undoStack,setUndoStack]=useState([]);
+  const[filter,setFilter]=useState("All");
+  const[expanded,setExpanded]=useState(null);
+  const[saved,setSaved]=useState([]);
+  const[view,setView]=useState("feed");
+  const[apiKey,setApiKey]=useState(null);
+  const[showKeyModal,setShowKeyModal]=useState(false);
+  const[copied,setCopied]=useState(null);
+  const[showQuickHits,setShowQuickHits]=useState(true);
+  const[ai,setAi]=useState({});
+  const[aiLoading,setAiLoading]=useState({});
+
+  // ═══ FETCH ON MOUNT ═══
+  useEffect(()=>{
+    (async()=>{
+      setLoading(true);setErr(null);
+      try{
+        const data=await fetchReddit();
+        if(data.length===0)throw new Error("empty");
+        setPosts(data);
+      }catch(e){
+        setErr("Couldn't reach Reddit. Check your connection and try again.");
+      }
+      setLoading(false);
+    })();
+  },[]);
+
+  // ═══ LOAD DETAILS ON EXPAND ═══
+  const loadDetails=useCallback(async(post)=>{
+    if(ai[post.id]||aiLoading[post.id])return;
+    setAiLoading(p=>({...p,[post.id]:true}));
+    try{
+      const comments=await fetchComments(post);
+      if(apiKey){
+        const result=await getAI(post.title,post.selftext,comments,apiKey);
+        if(result){setAi(p=>({...p,[post.id]:{...result,comments}}));setAiLoading(p=>({...p,[post.id]:false}));return;}
+      }
+      // Fallback: raw comments classified
+      const digest=comments.slice(0,3).map(c=>({
+        type:c.type,
+        text:c.body.length>200?c.body.slice(0,200)+"…":c.body,
+        ups:c.ups,
+      }));
+      setAi(p=>({...p,[post.id]:{summary:null,talkingPoint:null,commentDigest:digest,fallback:true}}));
+    }catch{
+      setAi(p=>({...p,[post.id]:{error:true,commentDigest:[]}}));
+    }
+    setAiLoading(p=>({...p,[post.id]:false}));
+  },[ai,aiLoading,apiKey]);
+
+  useEffect(()=>{
+    if(expanded){const p=posts.find(x=>x.id===expanded);if(p)loadDetails(p);}
+  },[expanded]);
+
+  const dismiss=id=>{setDismissed(p=>[...p,id]);setUndoStack(p=>[...p,id]);if(expanded===id)setExpanded(null);};
+  const undo=()=>{if(!undoStack.length)return;const l=undoStack.at(-1);setUndoStack(p=>p.slice(0,-1));setDismissed(p=>p.filter(d=>d!==l));};
+  const toggleSave=id=>setSaved(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);
+  const copyTP=text=>{navigator.clipboard?.writeText(text).then(()=>{setCopied(text);setTimeout(()=>setCopied(null),2000);});};
+
+  const cats=["All","World","Tech","Biz","Science","Learn"];
+  const feedPosts=posts.filter(p=>!dismissed.includes(p.id)).filter(p=>filter==="All"||p.cat===filter);
+  const savedPosts=posts.filter(p=>saved.includes(p.id)).filter(p=>filter==="All"||p.cat===filter);
+  const activePosts=view==="feed"?feedPosts:savedPosts;
+  const total=posts.filter(p=>filter==="All"||p.cat===filter).length;
+  const readCount=total-posts.filter(p=>!dismissed.includes(p.id)&&(filter==="All"||p.cat===filter)).length;
+  const breakingCount=feedPosts.filter(p=>p.breaking).length;
+  const quickHits=posts.slice(0,5);
+
+  return(
+    <div>
+      {showKeyModal&&<ApiKeyModal onSave={k=>{setApiKey(k);setShowKeyModal(false);}} onSkip={()=>setShowKeyModal(false)}/>}
+
+      {/* ═══ HEADER ═══ */}
+      <div style={{position:"sticky",top:0,zIndex:50,background:"rgba(7,7,10,0.94)",backdropFilter:"blur(20px)",borderBottom:"1px solid #141418",padding:"14px 16px 10px"}}>
+        <div style={{maxWidth:560,margin:"0 auto"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <div className="dm" style={{fontSize:9,fontWeight:700,letterSpacing:3,color:"#F59E0B"}}>☕ WATER COOLER</div>
+                {breakingCount>0&&view==="feed"&&<div className="dm bk" style={{fontSize:8,fontWeight:700,background:"#EF4444",color:"#fff",padding:"2px 6px",borderRadius:4,letterSpacing:1}}>🔴 {breakingCount} BREAKING</div>}
+              </div>
+              <h1 style={{fontSize:20,fontWeight:300,margin:"2px 0 0",color:"#FAF9F6",letterSpacing:-.3}}>Today's Digest</h1>
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <button onClick={()=>setShowKeyModal(true)} className="dm" style={{fontSize:9,fontWeight:600,padding:"4px 8px",borderRadius:6,border:"1px solid #222",background:apiKey?"#10B98120":"transparent",color:apiKey?"#10B981":"#444",cursor:"pointer"}}>{apiKey?"✓ AI On":"🔑 AI"}</button>
+              <div style={{textAlign:"right"}}>
+                <div className="jb" style={{fontSize:22,fontWeight:500,color:feedPosts.length===0&&view==="feed"?"#10B981":"#F59E0B",transition:"color .3s"}}>{view==="feed"?feedPosts.length:savedPosts.length}</div>
+                <div className="dm" style={{fontSize:9,color:"#444",marginTop:-3}}>{view==="feed"?"remaining":"saved"}</div>
+              </div>
+            </div>
+          </div>
+          {/* Progress */}
+          {view==="feed"&&!loading&&<>
+            <div style={{height:3,background:"#141418",borderRadius:2,marginTop:10,overflow:"hidden"}}>
+              <div style={{height:"100%",width:`${total?(readCount/total)*100:0}%`,background:readCount===total?"#10B981":"linear-gradient(90deg,#F59E0B,#EF4444)",borderRadius:2,transition:"width .5s"}}/>
+            </div>
+            <div className="dm" style={{fontSize:9,color:"#333",marginTop:3,display:"flex",justifyContent:"space-between"}}>
+              <span>{readCount}/{total} checked · 17 subs</span>
+              <span className="hint">← swipe to dismiss</span>
+            </div>
+          </>}
+          {/* Tabs */}
+          <div style={{display:"flex",gap:4,marginTop:10,background:"#0E0E12",borderRadius:8,padding:3,width:"fit-content"}}>
+            {[{k:"feed",l:"🗞 Feed"},{k:"saved",l:"📌 Saved"}].map(v=>(
+              <button key={v.k} onClick={()=>setView(v.k)} style={{fontSize:12,fontWeight:600,padding:"6px 14px",borderRadius:6,border:"none",cursor:"pointer",background:view===v.k?"#F59E0B":"transparent",color:view===v.k?"#000":"#666",transition:"all .2s"}}>
+                {v.l}{v.k==="saved"&&saved.length>0&&<span className="jb" style={{marginLeft:4,fontSize:10,opacity:.7}}>{saved.length}</span>}
+              </button>
+            ))}
+          </div>
+          {/* Filters */}
+          <div style={{display:"flex",gap:5,marginTop:8,overflowX:"auto",paddingBottom:2}}>
+            {cats.map(c=>{
+              const s=SUBS.find(x=>x.cat===c);const active=filter===c;
+              const count=view==="feed"?posts.filter(p=>!dismissed.includes(p.id)&&(c==="All"||p.cat===c)).length:posts.filter(p=>saved.includes(p.id)&&(c==="All"||p.cat===c)).length;
+              return(
+                <button key={c} onClick={()=>setFilter(c)} className="dm" style={{fontSize:11,fontWeight:600,padding:"4px 12px",borderRadius:16,whiteSpace:"nowrap",flexShrink:0,border:active?`1.5px solid ${s?.color||"#F59E0B"}`:"1px solid #1C1C22",background:active?`${s?.color||"#F59E0B"}12`:"transparent",color:active?s?.color||"#F59E0B":"#555",cursor:"pointer"}}>
+                  {s?.emoji||"📰"} {c} <span style={{opacity:.5,marginLeft:2}}>{count}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* ═══ CONTENT ═══ */}
+      <div style={{maxWidth:560,margin:"0 auto",padding:"12px 12px 110px"}}>
+
+        {/* Loading */}
+        {loading&&[1,2,3,4,5,6].map(i=><div key={i} className="shim" style={{height:100,marginBottom:8}}/>)}
+
+        {/* Error */}
+        {err&&!loading&&(
+          <div className="dm" style={{textAlign:"center",padding:"60px 20px"}}>
+            <div style={{fontSize:36,marginBottom:10}}>📡</div>
+            <div style={{color:"#EF4444",fontSize:13,marginBottom:10}}>{err}</div>
+            <button onClick={()=>window.location.reload()} style={{fontSize:12,fontWeight:600,padding:"8px 20px",borderRadius:8,border:"1px solid #333",background:"transparent",color:"#F59E0B",cursor:"pointer"}}>Retry</button>
+          </div>
+        )}
+
+        {/* Quick Hits */}
+        {!loading&&!err&&view==="feed"&&showQuickHits&&filter==="All"&&feedPosts.length>0&&quickHits.length>0&&(
+          <div style={{marginBottom:14,background:"#0C0C10",borderRadius:12,border:"1px solid #181820",overflow:"hidden"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 14px 8px"}}>
+              <div className="dm" style={{fontSize:9,fontWeight:700,letterSpacing:2,color:"#F59E0B"}}>⚡ 60-SECOND BRIEFING</div>
+              <button onClick={()=>setShowQuickHits(false)} className="dm" style={{fontSize:10,color:"#333",background:"none",border:"none",cursor:"pointer"}}>hide ✕</button>
+            </div>
+            {quickHits.map((p,i)=>(
+              <div key={p.id} style={{padding:"6px 14px",display:"flex",gap:10,alignItems:"flex-start",borderTop:i?"1px solid #12121A":"none"}}>
+                <span className="jb" style={{fontSize:11,color:"#333",minWidth:16,paddingTop:1}}>{i+1}.</span>
+                <span style={{fontSize:13,lineHeight:1.45,color:"#AAA",flex:1}}>{p.title}</span>
+                <span className="dm" style={{fontSize:9,color:p.color,flexShrink:0,paddingTop:3}}>{p.emoji}</span>
+              </div>
+            ))}
+            <div className="dm" style={{padding:"6px 14px 10px",fontSize:9,color:"#2A2A30"}}>Tap any story below for the full digest ↓</div>
+          </div>
+        )}
+
+        {/* Empty states */}
+        {!loading&&!err&&view==="feed"&&!feedPosts.length&&(
+          <div className="dm" style={{textAlign:"center",padding:"70px 20px"}}>
+            <div style={{fontSize:48,marginBottom:12}}>🎉</div>
+            <div style={{fontSize:18,fontWeight:600,color:"#FAF9F6",marginBottom:6}}>All caught up!</div>
+            <div style={{fontSize:13,color:"#555",marginBottom:20}}>You've covered all {total} stories. Go dominate that water cooler.</div>
+            <button onClick={()=>{setDismissed([]);setUndoStack([]);}} style={{fontSize:12,fontWeight:600,padding:"10px 24px",borderRadius:8,border:"none",background:"#F59E0B",color:"#000",cursor:"pointer"}}>🔄 Start over</button>
+          </div>
+        )}
+        {!loading&&view==="saved"&&!savedPosts.length&&(
+          <div className="dm" style={{textAlign:"center",padding:"70px 20px"}}>
+            <div style={{fontSize:48,marginBottom:12}}>📌</div>
+            <div style={{fontSize:18,fontWeight:600,color:"#FAF9F6",marginBottom:6}}>No saved articles yet</div>
+            <div style={{fontSize:13,color:"#555"}}>Tap the bookmark icon on any story to save it.</div>
+          </div>
+        )}
+
+        {/* ═══ POST CARDS ═══ */}
+        {activePosts.map((p,idx)=>{
+          const isExp=expanded===p.id;const det=ai[p.id];const isLoadingDet=aiLoading[p.id];
+          const isSaved=saved.includes(p.id);const isLearn=p.cat==="Learn";
+
+          const card=(
+            <div className="card" style={{marginBottom:8,background:isExp?"#0F0F14":"#0B0B0F",borderRadius:12,border:p.breaking&&!isExp?"1px solid #EF444430":isExp?`1px solid ${p.color}25`:"1px solid #141418",overflow:"hidden",animationDelay:`${idx*.04}s`}}>
+              <div style={{padding:"14px",cursor:"pointer"}} onClick={()=>setExpanded(isExp?null:p.id)}>
+                <div style={{display:"flex",gap:12}}>
+                  <div style={{display:"flex",flexDirection:"column",alignItems:"center",minWidth:42,background:"#111115",borderRadius:8,padding:"7px 3px"}}>
+                    <span style={{fontSize:11,color:p.color}}>▲</span>
+                    <span className="jb" style={{fontSize:12,fontWeight:500,color:p.color}}>{fmt(p.ups)}</span>
+                    <span className="dm" style={{fontSize:8,color:"#444",marginTop:2}}>💬{fmt(p.comms)}</span>
+                  </div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:5,flexWrap:"wrap"}}>
+                      <span className="dm" style={{fontSize:9,fontWeight:700,letterSpacing:1,color:p.color}}>{p.emoji} {p.cat.toUpperCase()}</span>
+                      {p.breaking&&<span className="dm bk" style={{fontSize:8,fontWeight:700,background:"#EF4444",color:"#fff",padding:"1px 5px",borderRadius:3}}>BREAKING</span>}
+                      {isLearn&&!p.breaking&&<span className="dm" style={{fontSize:8,fontWeight:700,background:"#EC489920",color:"#EC4899",padding:"1px 5px",borderRadius:3}}>CONVO STARTER</span>}
+                      <span className="jb" style={{fontSize:9,color:"#3A3A40"}}>{ago(p.ts)} ago</span>
+                      <span className="dm" style={{fontSize:9,color:"#2A2A30"}}>{readTime(p.comms)}</span>
+                    </div>
+                    <h3 style={{fontSize:14,fontWeight:600,margin:0,lineHeight:1.45,color:"#EDEBE6"}}>{p.title}</h3>
+                    <div className="dm" style={{fontSize:10,color:"#2A2A30",marginTop:6,display:"flex",alignItems:"center"}}>
+                      <span>r/{p.sub}</span>
+                      <span style={{marginLeft:"auto",display:"flex",gap:8,alignItems:"center"}}>
+                        <span onClick={e=>{e.stopPropagation();toggleSave(p.id);}} style={{fontSize:14,cursor:"pointer",opacity:isSaved?1:.3,transition:"opacity .2s"}}>📌</span>
+                        <span style={{fontSize:14,transition:"transform .2s",transform:isExp?"rotate(90deg)":"none"}}>›</span>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* EXPANDED */}
+              {isExp&&(
+                <div className="detail-in" style={{padding:"0 14px 16px",borderTop:"1px solid #18181E",paddingTop:14}}>
+                  {isLoadingDet&&<div><div className="shim" style={{height:50,marginBottom:8}}/><div className="shim" style={{height:70,marginBottom:8}}/><div className="shim" style={{height:45}}/></div>}
+                  {det&&<>
+                    {det.summary&&(
+                      <div style={{padding:"12px 14px",background:"#111118",borderRadius:10,borderLeft:`3px solid ${p.color}`,marginBottom:12}}>
+                        <div className="dm" style={{fontSize:8,fontWeight:700,letterSpacing:2,color:"#444",marginBottom:6}}>{apiKey?"🤖 GPT-4o SUMMARY":"✨ AI SUMMARY"}</div>
+                        <p style={{fontSize:13,lineHeight:1.65,margin:0,color:"#999"}}>{det.summary}</p>
+                      </div>
+                    )}
+                    {det.commentDigest?.length>0&&(
+                      <div style={{marginBottom:12}}>
+                        <div className="dm" style={{fontSize:8,fontWeight:700,letterSpacing:2,color:"#444",marginBottom:8}}>💬 WHAT REDDIT SAYS</div>
+                        {det.commentDigest.map((c,i)=>{
+                          const lb=LABELS[c.type]||LABELS.hot;
+                          return(
+                            <div key={i} style={{display:"flex",gap:10,marginBottom:6,padding:"10px 12px",background:"#0D0D14",borderRadius:10,border:"1px solid #1A1A22"}}>
+                              <div style={{flexShrink:0,textAlign:"center",minWidth:34}}>
+                                <div style={{fontSize:18}}>{lb.emoji}</div>
+                                <div className="dm" style={{fontSize:7,fontWeight:700,color:lb.color,marginTop:2}}>{lb.label}</div>
+                                {c.ups&&<div className="jb" style={{fontSize:8,color:"#333",marginTop:2}}>▲{fmt(c.ups)}</div>}
+                              </div>
+                              <p style={{fontSize:12,lineHeight:1.55,margin:0,color:"#888",flex:1}}>{c.text}</p>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {det.talkingPoint&&(
+                      <div style={{padding:"14px 16px",marginBottom:14,background:`linear-gradient(135deg,${p.color}0D,${p.color}05)`,borderRadius:10,border:`1px solid ${p.color}20`}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                          <div className="dm" style={{fontSize:8,fontWeight:700,letterSpacing:2,color:p.color}}>🎯 YOUR TALKING POINT</div>
+                          <button onClick={e=>{e.stopPropagation();copyTP(det.talkingPoint);}} className="dm" style={{fontSize:9,fontWeight:600,padding:"3px 8px",borderRadius:4,border:`1px solid ${p.color}30`,background:"transparent",color:copied===det.talkingPoint?"#10B981":p.color,cursor:"pointer",transition:"all .2s"}}>{copied===det.talkingPoint?"✓ Copied!":"📋 Copy"}</button>
+                        </div>
+                        <p style={{fontSize:13,lineHeight:1.6,margin:0,color:"#E2DFD8",fontStyle:"italic"}}>"{det.talkingPoint}"</p>
+                      </div>
+                    )}
+                    {det.error&&<div className="dm" style={{padding:"12px 14px",background:"#140D0D",borderRadius:8,fontSize:12,color:"#F87171",marginBottom:12}}>Couldn't load analysis — tap Thread to read comments on Reddit.</div>}
+                    {!det.summary&&!det.error&&det.fallback&&(
+                      <div className="dm" style={{padding:"8px 14px",background:"#0E0E14",borderRadius:8,fontSize:10,color:"#444",marginBottom:12}}>💡 Paste your OpenAI API key (🔑 button) for AI summaries and talking points.</div>
+                    )}
+                    <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                      <a href={p.permalink} target="_blank" rel="noreferrer" className="dm" style={{fontSize:10,fontWeight:600,padding:"7px 14px",borderRadius:6,border:"1px solid #1E1E24",color:"#666",textDecoration:"none"}}>💬 Thread</a>
+                      {p.url&&!p.url.includes("reddit.com")&&<a href={p.url} target="_blank" rel="noreferrer" className="dm" style={{fontSize:10,fontWeight:600,padding:"7px 14px",borderRadius:6,border:"1px solid #1E1E24",color:"#666",textDecoration:"none"}}>🔗 Source</a>}
+                      <button onClick={e=>{e.stopPropagation();toggleSave(p.id);}} className="dm" style={{fontSize:10,fontWeight:600,padding:"7px 14px",borderRadius:6,border:"1px solid #1E1E24",background:"transparent",color:isSaved?"#F59E0B":"#666",cursor:"pointer"}}>{isSaved?"★ Saved":"☆ Save"}</button>
+                      {view==="feed"&&<button onClick={e=>{e.stopPropagation();dismiss(p.id);}} className="dm" style={{fontSize:10,fontWeight:600,padding:"7px 14px",borderRadius:6,border:"1px solid #1E1E24",background:"transparent",color:"#10B981",cursor:"pointer",marginLeft:"auto"}}>✓ Done</button>}
+                    </div>
+                  </>}
+                </div>
+              )}
+            </div>
+          );
+
+          return view==="feed"
+            ?<SwipeCard key={p.id} onSwipe={()=>dismiss(p.id)}>{card}</SwipeCard>
+            :<div key={p.id}>{card}</div>;
+        })}
+      </div>
+
+      {/* UNDO */}
+      {undoStack.length>0&&view==="feed"&&feedPosts.length>0&&(
+        <button onClick={undo} className="dm" style={{position:"fixed",bottom:20,right:16,zIndex:100,fontSize:12,fontWeight:700,padding:"10px 18px",borderRadius:24,border:"none",background:"#F59E0B",color:"#000",cursor:"pointer",boxShadow:"0 4px 20px rgba(245,158,11,.35)"}}>↩ Undo ({undoStack.length})</button>
+      )}
+
+      <div className="dm" style={{textAlign:"center",padding:"0 16px 28px",fontSize:9,color:"#1E1E22",lineHeight:2}}>
+        17 subreddits · 5 categories · Top 24h + hourly breaking<br/>
+        Reddit API (free) + OpenAI GPT-4o-mini<br/>
+        Smart dedup · Swipe dismiss · Save · Copy talking points
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.render(<App/>,document.getElementById("root"));
+</script>
+</body>
+</html>
