@@ -96,7 +96,7 @@ async function fetchReddit(){
   for(const s of SUBS){
     // Fetch top of day
     try{
-      const r=await fetch(`https://www.reddit.com/r/${s.name}/top.json?t=day&limit=${s.day+3}`);
+      const r=await fetch(`/api/reddit?sub=${s.name}&sort=top&t=day&limit=${s.day+3}`);
       if(!r.ok)continue;const j=await r.json();
       for(const{data:d}of j.data.children){
         if(d.stickied||d.ups<50)continue;
@@ -109,7 +109,7 @@ async function fetchReddit(){
     // Fetch top of hour (breaking)
     if(s.hour>0){
       try{
-        const r=await fetch(`https://www.reddit.com/r/${s.name}/top.json?t=hour&limit=${s.hour+2}`);
+        const r=await fetch(`/api/reddit?sub=${s.name}&sort=top&t=hour&limit=${s.hour+2}`);
         if(!r.ok)continue;const j=await r.json();
         for(const{data:d}of j.data.children){
           if(d.stickied||d.ups<30)continue;
@@ -130,7 +130,7 @@ async function fetchReddit(){
 // ═══ FETCH COMMENTS ═══
 async function fetchComments(post){
   try{
-    const r=await fetch(`https://www.reddit.com/r/${post.sub}/comments/${post.id}.json?sort=top&limit=15`);
+    const r=await fetch(`/api/reddit?sub=${post.sub}&id=${post.id}&sort=top&limit=15`);
     const j=await r.json();
     return j[1]?.data?.children
       ?.filter(c=>c.kind==="t1"&&c.data.body&&c.data.ups>5)
