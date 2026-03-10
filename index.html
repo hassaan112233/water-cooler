@@ -139,30 +139,16 @@ async function fetchComments(post){
   }catch{return[];}
 }
 
-// ═══ OPENAI SUMMARY ═══
-async function getAI(title,selftext,comments,apiKey){
-  const comTxt=comments.slice(0,5).map(c=>`[▲${c.ups}${c.type==="funny"?" FUNNY":""}] ${c.body?.slice(0,180)}`).join("\n");
+// ═══ AI SUMMARY (via serverless function — key is in Vercel env vars) ═══
+async function getAI(title,selftext,comments){
   try{
-    const r=await fetch("https://api.openai.com/v1/chat/completions",{
-      method:"POST",headers:{"Content-Type":"application/json","Authorization":`Bearer ${apiKey}`},
-      body:JSON.stringify({model:"gpt-4o-mini",temperature:0.7,max_tokens:400,
-        messages:[
-          {role:"system",content:"You are a crisp, witty news digest assistant. Write like a smart friend over coffee. ALWAYS include funny high-upvote comments."},
-          {role:"user",content:`Reddit post + comments. Give me:
-1. "summary": 2 tight sentences. What happened & why it matters.
-2. "commentDigest": exactly 3 items [{type,text}]. type=funny|insight|counter|expert|hot. Include funny+high-upvote ones! Each text 1-2 sentences max.
-3. "talkingPoint": 1 casual sentence for office water cooler. Sound natural.
-
-Title: ${title}
-Body: ${selftext?.slice(0,300)||"(link post)"}
-Comments:\n${comTxt}
-
-RESPOND ONLY VALID JSON. No markdown, no backticks.`}
-        ]})
+    const r=await fetch("/api/summarize",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({title,selftext,comments})
     });
-    const d=await r.json();
-    const t=d.choices?.[0]?.message?.content||"";
-    return JSON.parse(t.replace(/```json|```/g,"").trim());
+    if(!r.ok)return null;
+    return await r.json();
   }catch{return null;}
 }
 
@@ -215,8 +201,6 @@ function App(){
   const[expanded,setExpanded]=useState(null);
   const[saved,setSaved]=useState([]);
   const[view,setView]=useState("feed");
-  const[apiKey,setApiKey]=useState(null);
-  const[showKeyModal,setShowKeyModal]=useState(false);
   const[copied,setCopied]=useState(null);
   const[showQuickHits,setShowQuickHits]=useState(true);
   const[ai,setAi]=useState({});
@@ -243,10 +227,9 @@ function App(){
     setAiLoading(p=>({...p,[post.id]:true}));
     try{
       const comments=await fetchComments(post);
-      if(apiKey){
-        const result=await getAI(post.title,post.selftext,comments,apiKey);
-        if(result){setAi(p=>({...p,[post.id]:{...result,comments}}));setAiLoading(p=>({...p,[post.id]:false}));return;}
-      }
+      // Always try AI — key is stored server-side in Vercel env vars
+      const result=await getAI(post.title,post.selftext,comments);
+      if(result&&result.summary){setAi(p=>({...p,[post.id]:{...result,comments}}));setAiLoading(p=>({...p,[post.id]:false}));return;}
       // Fallback: raw comments classified
       const digest=comments.slice(0,3).map(c=>({
         type:c.type,
@@ -258,7 +241,7 @@ function App(){
       setAi(p=>({...p,[post.id]:{error:true,commentDigest:[]}}));
     }
     setAiLoading(p=>({...p,[post.id]:false}));
-  },[ai,aiLoading,apiKey]);
+  },[ai,aiLoading]);
 
   useEffect(()=>{
     if(expanded){const p=posts.find(x=>x.id===expanded);if(p)loadDetails(p);}
@@ -280,8 +263,6 @@ function App(){
 
   return(
     <div>
-      {showKeyModal&&<ApiKeyModal onSave={k=>{setApiKey(k);setShowKeyModal(false);}} onSkip={()=>setShowKeyModal(false)}/>}
-
       {/* ═══ HEADER ═══ */}
       <div style={{position:"sticky",top:0,zIndex:50,background:"rgba(7,7,10,0.94)",backdropFilter:"blur(20px)",borderBottom:"1px solid #141418",padding:"14px 16px 10px"}}>
         <div style={{maxWidth:560,margin:"0 auto"}}>
@@ -294,7 +275,7 @@ function App(){
               <h1 style={{fontSize:20,fontWeight:300,margin:"2px 0 0",color:"#FAF9F6",letterSpacing:-.3}}>Today's Digest</h1>
             </div>
             <div style={{display:"flex",alignItems:"center",gap:10}}>
-              <button onClick={()=>setShowKeyModal(true)} className="dm" style={{fontSize:9,fontWeight:600,padding:"4px 8px",borderRadius:6,border:"1px solid #222",background:apiKey?"#10B98120":"transparent",color:apiKey?"#10B981":"#444",cursor:"pointer"}}>{apiKey?"✓ AI On":"🔑 AI"}</button>
+              <div className="dm" style={{fontSize:9,fontWeight:600,padding:"4px 8px",borderRadius:6,border:"1px solid #222",background:"#10B98120",color:"#10B981"}}>✓ AI On</div>
               <div style={{textAlign:"right"}}>
                 <div className="jb" style={{fontSize:22,fontWeight:500,color:feedPosts.length===0&&view==="feed"?"#10B981":"#F59E0B",transition:"color .3s"}}>{view==="feed"?feedPosts.length:savedPosts.length}</div>
                 <div className="dm" style={{fontSize:9,color:"#444",marginTop:-3}}>{view==="feed"?"remaining":"saved"}</div>
@@ -425,7 +406,7 @@ function App(){
                   {det&&<>
                     {det.summary&&(
                       <div style={{padding:"12px 14px",background:"#111118",borderRadius:10,borderLeft:`3px solid ${p.color}`,marginBottom:12}}>
-                        <div className="dm" style={{fontSize:8,fontWeight:700,letterSpacing:2,color:"#444",marginBottom:6}}>{apiKey?"🤖 GPT-4o SUMMARY":"✨ AI SUMMARY"}</div>
+                        <div className="dm" style={{fontSize:8,fontWeight:700,letterSpacing:2,color:"#444",marginBottom:6}}>🤖 AI SUMMARY</div>
                         <p style={{fontSize:13,lineHeight:1.65,margin:0,color:"#999"}}>{det.summary}</p>
                       </div>
                     )}
@@ -458,7 +439,7 @@ function App(){
                     )}
                     {det.error&&<div className="dm" style={{padding:"12px 14px",background:"#140D0D",borderRadius:8,fontSize:12,color:"#F87171",marginBottom:12}}>Couldn't load analysis — tap Thread to read comments on Reddit.</div>}
                     {!det.summary&&!det.error&&det.fallback&&(
-                      <div className="dm" style={{padding:"8px 14px",background:"#0E0E14",borderRadius:8,fontSize:10,color:"#444",marginBottom:12}}>💡 Paste your OpenAI API key (🔑 button) for AI summaries and talking points.</div>
+                      <div className="dm" style={{padding:"8px 14px",background:"#0E0E14",borderRadius:8,fontSize:10,color:"#444",marginBottom:12}}>💬 Showing raw Reddit comments. AI summary unavailable for this post.</div>
                     )}
                     <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                       <a href={p.permalink} target="_blank" rel="noreferrer" className="dm" style={{fontSize:10,fontWeight:600,padding:"7px 14px",borderRadius:6,border:"1px solid #1E1E24",color:"#666",textDecoration:"none"}}>💬 Thread</a>
